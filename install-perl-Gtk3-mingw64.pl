@@ -20,6 +20,8 @@ getopts('nd:');
 
 my $script_dir = cwd();
 my $build_dir = "$script_dir/perl-Gtk3-Build";
+my $make_cmd = "mingw32-make";
+
 mkdir("$build_dir") or die "Could not create the build directory: $! \n Please remove $script_dir/perl-Gtk3-Build with rm -R \n";
 
 print_welcome_page();
@@ -57,6 +59,7 @@ print "    [OK]\n";
 
 print "Installing App::cpanminus";
 #$exitcode = exec_with_progress("wget -qO - http://cpanmin.us | perl - --self-upgrade >> $script_dir/install.log 2>> $script_dir/error.log");
+
 $exitcode = exec_with_progress("curl -s -L https://cpanmin.us | perl - App::cpanminus >> $script_dir/install.log 2>> $script_dir/error.log");
 die " [FAIL]\n", $exitcode/256, ": ERROR at installing App::cpanminus: $!\n" if ($exitcode != 0);
 print " [OK]\n";
@@ -116,12 +119,12 @@ sub install_perl_module {
 	print " [OK]\n";
 
 	print "Building $module";
-	$exitcode = exec_with_progress("dmake >> $script_dir/install.log 2>> $script_dir/error.log");
+	$exitcode = exec_with_progress("$make_cmd >> $script_dir/install.log 2>> $script_dir/error.log");
 	die " [FAIL]\n", $exitcode/256, ": ERROR: Could not build $module: $!\n" if ($exitcode != 0);
 	print " [OK]\n";
 		
 	print "Installing $module";
-	$exitcode = exec_with_progress("dmake install >> $script_dir/install.log 2>> $script_dir/error.log");
+	$exitcode = exec_with_progress("$make_cmd install >> $script_dir/install.log 2>> $script_dir/error.log");
 	die " [FAIL]\n", $exitcode/256, ": ERROR: Could not install $module: $!\n" if ($exitcode != 0);
 	print " [OK]\n\n";
 }
@@ -156,19 +159,23 @@ sub install_prereq_module {
 	$exitcode = system("tar xzf $filename >> $script_dir/install.log 2>> $script_dir/error.log");
 	die "    [FAIL]\n", $exitcode/256, ": ERROR: Could not extract $filename: $!\n" if ($exitcode != 0);
 	print "    [OK]\n";
-
 	print "Hacking Makefile.PL\n";
 	chdir("$build_dir/$dirname") or die "Could not change to $build_dir/$dirname\n";
 	make_file_hack();
 	print "Hack completed    [OK]\n";
 	
 	print "Building $module";
-	$exitcode = exec_with_progress("dmake >> $script_dir/install.log 2>> $script_dir/error.log");
+	$exitcode = exec_with_progress("$make_cmd >> $script_dir/install.log 2>> $script_dir/error.log");
+	die " [FAIL]\n", $exitcode/256, ": ERROR: Could not build $module: $!\n" if ($exitcode != 0);
+	print " [OK]\n";
+
+	print "Building static $module";
+	$exitcode = exec_with_progress("$make_cmd static >> $script_dir/install.log 2>> $script_dir/error.log");
 	die " [FAIL]\n", $exitcode/256, ": ERROR: Could not build $module: $!\n" if ($exitcode != 0);
 	print " [OK]\n";
 		
 	print "Installing $module";
-	$exitcode = exec_with_progress("dmake install >> $script_dir/install.log 2>> $script_dir/error.log");
+	$exitcode = exec_with_progress("$make_cmd install >> $script_dir/install.log 2>> $script_dir/error.log");
 	die " [FAIL]\n", $exitcode/256, ": ERROR: Could not install $module: $!\n" if ($exitcode != 0);
 	print " [OK]\n\n";
 }
@@ -189,25 +196,25 @@ sub make_file_hack {
 	chomp $libs;
 	$libs =~ s/^\s* LIBS => q\[//;
 	$libs =~ s/\]$//;
-	my @libs = split(/-L/, $libs);
-	shift @libs;
-
+	my @libs = split(/ /, $libs);
 	foreach my $element (@libs) {
 		if ( $element =~ m/\/mingw64\/lib\s+/ ) {
-			$element = ":nosearch -L$element";
+            $element = ":nosearch -L$element";
 		}
 		# Hack for Glib::Object::Introspection
 		elsif ( $element =~ m/\/mingw64\/lib\/\.\.\/lib\s+/ ) {
 			$element = ":nosearch -L$element";
 		} 
 		else {
-			$element = ":search -L$element";
+			$element = "-l:Glib.dll" if $element =~ m/-lGlib/;
+			$element = "-l:Cairo.dll" if $element =~ m/-lCairo/;
+			$element = ":nosearch $element";
 		}
-		print "LIBS: $element\n";
 	}
 
 	#system("perl ./Makefile.PL LIBS=\"@libs\" >> $script_dir/install.log 2>> $script_dir/error.log");
 	my $exitcode;
+
 	if ($opt_d) {
 		system("perl ./Makefile.PL LIBS=\"@libs\" DESTDIR=\"$opt_d\" INSTALLDIRS=\"vendor\" INSTALLVENDORARCH=\"mingw64/lib/perl5/vendor_perl\"  INSTALLVENDORBIN=\"mingw64/bin\" INSTALLVENDORLIB=\"mingw64/lib/perl5/vendor_perl\" NO_PERLLOCAL=1 >> $script_dir/install.log 2>> $script_dir/error.log");
 	}
@@ -322,21 +329,21 @@ sub install_xml_parser_expat {
 
 	print "Hacking Makefile.PL\n";
 	chdir("$build_dir/$dirname") or die "Could not change to $build_dir/$dirname\n";
-	system("perl ./Makefile.PL EXPATLIBPATH=\"$path\/mingw64\/lib\" EXPATINCPATH=\"$path\/mingw64\/include\" >> $script_dir/install.log 2>> $script_dir/error.log");
+	system("perl ./Makefile.PL EXPATLIBPATH=\"$path\/mingw64\/lib\" EXPATINCPATH=\"$path\/mingw64\/include\" >> $script_dir/install_hack.log 2>> $script_dir/error.log");
 	print "Hack completed    [OK]\n";
-	
+
 	print "Building $module";
-	$exitcode = exec_with_progress("dmake >> $script_dir/install.log 2>> $script_dir/error.log");
+	$exitcode = exec_with_progress("$make_cmd >> $script_dir/install.log 2>> $script_dir/error.log");
 	die " [FAIL]\n", $exitcode/256, ": ERROR: Could not build $module: $!\n" if ($exitcode != 0);
 	print " [OK]\n";
-	
+
 	print "Testing $module";
-	$exitcode = exec_with_progress("dmake test >> $script_dir/install.log 2>> $script_dir/error.log");
+	$exitcode = exec_with_progress("$make_cmd test >> $script_dir/install_test.log 2>> $script_dir/error.log");
 	die " [FAIL]\n", $exitcode/256, ": ERROR: Could not build $module: $!\n" if ($exitcode != 0);
 	print " [OK]\n";
 		
 	print "Installing $module";
-	$exitcode = exec_with_progress("dmake install >> $script_dir/install.log 2>> $script_dir/error.log");
+	$exitcode = exec_with_progress("$make_cmd install >> $script_dir/install_install.log 2>> $script_dir/error.log");
 	die " [FAIL]\n", $exitcode/256, ": ERROR: Could not install $module: $!\n" if ($exitcode != 0);
 	print " [OK]\n\n";
 }
